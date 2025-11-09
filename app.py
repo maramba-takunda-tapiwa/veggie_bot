@@ -58,6 +58,12 @@ def whatsapp_reply():
     resp = MessagingResponse()
     msg = resp.message()
 
+    # Check for restart command
+    if incoming_msg.lower() in ["hi", "hello", "start", "restart"]:
+        user_states[from_number] = {"stage": "ask_name"}
+        msg.body("👋 Welcome to Marr's Veggie Orders 🥬!\nPlease tell me your *name* to start your order.")
+        return str(resp)
+
     # Initialize new user
     if from_number not in user_states:
         user_states[from_number] = {"stage": "ask_name"}
