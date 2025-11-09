@@ -4,13 +4,14 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# ---- Google Sheets Setup ----
-SERVICE_ACCOUNT_FILE = "veggiebot-key.json"  # ← your JSON filename
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+import os, json
+from google.oauth2.service_account import Credentials
+
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+# Load JSON creds from Render environment variable
+creds_json = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
+creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
 client = gspread.authorize(creds)
 sheet = client.open("Veggie_Orders").sheet1  # must match your sheet name
 
