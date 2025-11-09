@@ -7,7 +7,11 @@ from datetime import datetime
 import os, json
 from google.oauth2.service_account import Credentials
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
 
 # Load JSON creds from Render environment variable
 creds_json = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
