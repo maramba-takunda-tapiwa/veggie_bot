@@ -1,0 +1,5 @@
+Flask
+twilio
+gspread
+google-auth
+gunicorn
