@@ -30,6 +30,19 @@ sheet = client.open("Veggie_Orders").sheet1
 # ---- Flask App ----
 app = Flask(__name__)
 
+# ---- Health Check Endpoint ----
+@app.route("/", methods=["GET"])
+def home():
+    """Health check endpoint"""
+    return {
+        "status": "online",
+        "service": "Foodstream Veggies Bot",
+        "version": "2.0",
+        "endpoints": {
+            "whatsapp": "/whatsapp (POST)"
+        }
+    }, 200
+
 # ---- In-Memory User State Storage ----
 user_states = {}
 # Store last order for each user (for modifications)
