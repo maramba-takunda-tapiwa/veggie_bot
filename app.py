@@ -120,7 +120,14 @@ def whatsapp_reply():
     msg = resp.message()
 
     # Check for restart command
-    if incoming_msg.lower() in ["hi", "hello", "start", "restart"]:
+    if incoming_msg.lower() in ["hi", "hello", "start", "restart", "reset", "new"]:
+        # Force clear any existing state
+        if from_number in user_states:
+            del user_states[from_number]
+        if from_number in last_orders:
+            del last_orders[from_number]
+        
+        # Initialize fresh state
         user_states[from_number] = {"stage": "ask_name"}
         msg.body("👋 Welcome to Foodstream Veggies 🥬!\nPlease tell me your *name* to start your order.")
         return str(resp)
@@ -152,6 +159,15 @@ def whatsapp_reply():
             "Type *HI* to place a new order! 🥦"
         )
         del last_orders[from_number]
+        return str(resp)
+    
+    # Debug command - check current state
+    if incoming_msg.lower() == "debug":
+        if from_number in user_states:
+            current_stage = user_states[from_number].get("stage", "unknown")
+            msg.body(f"🔧 Debug Info:\nYour current stage: {current_stage}\n\nType *RESET* to start fresh.")
+        else:
+            msg.body(f"🔧 Debug Info:\nNo active conversation.\n\nType *HI* to start ordering!")
         return str(resp)
 
     # Initialize new user
