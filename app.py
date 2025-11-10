@@ -59,14 +59,14 @@ def save_order_to_sheet(state, phone_number):
     """Save order details to Google Sheet with error handling"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        full_delivery = f"{state['delivery_day']} {state['delivery_time']}"
         order_id = state.get('order_id', generate_order_id())
         
         sheet.append_row([
             order_id,
             state["name"],
             state["bundles"],
-            full_delivery,
+            state["address"],
+            state["postcode"],
             phone_number.replace("whatsapp:", ""),
             timestamp,
             "Confirmed"
@@ -77,7 +77,8 @@ def save_order_to_sheet(state, phone_number):
             'order_id': order_id,
             'name': state['name'],
             'bundles': state['bundles'],
-            'delivery': full_delivery,
+            'address': state['address'],
+            'postcode': state['postcode'],
             'timestamp': timestamp
         }
         
@@ -108,7 +109,7 @@ def whatsapp_reply():
     # Check for restart command
     if incoming_msg.lower() in ["hi", "hello", "start", "restart"]:
         user_states[from_number] = {"stage": "ask_name"}
-        msg.body("👋 Welcome to Marr's Veggie Orders 🥬!\nPlease tell me your *name* to start your order.")
+        msg.body("👋 Welcome to Foodstream Veggies 🥬!\nPlease tell me your *name* to start your order.")
         return str(resp)
     
     # Check for view order command
@@ -120,7 +121,7 @@ def whatsapp_reply():
                 f"🆔 Order ID: {order['order_id']}\n"
                 f"👤 Name: {order['name']}\n"
                 f"🥬 Bundles: {order['bundles']}\n"
-                f"🕒 Delivery: {order['delivery']}\n\n"
+                f"� Address: {order['address']}, {order['postcode']}\n\n"
                 "Reply *CANCEL* to cancel this order\n"
                 "or *HI* to place a new order 🥦"
             )
@@ -143,7 +144,7 @@ def whatsapp_reply():
     # Initialize new user
     if from_number not in user_states:
         user_states[from_number] = {"stage": "ask_name"}
-        msg.body("👋 Welcome to Marr's Veggie Orders 🥬!\nPlease tell me your *name* to start your order.")
+        msg.body("👋 Welcome to Foodstream Veggies 🥬!\nPlease tell me your *name* to start your order.")
         return str(resp)
 
     state = user_states[from_number]
@@ -164,33 +165,20 @@ def whatsapp_reply():
             return str(resp)
         
         state["bundles"] = result
-        state["stage"] = "ask_delivery_day"
-        msg.body(
-            "Got it ✅\nPlease choose a *delivery day*:\n"
-            "1️⃣ Saturday\n"
-            "2️⃣ Sunday"
-        )
+        state["stage"] = "ask_address"
+        msg.body("Got it ✅\nPlease provide your *delivery address*:")
         return str(resp)
 
-    # ---- Stage 3: Get Delivery Day ----
-    elif state["stage"] == "ask_delivery_day":
-        choice = incoming_msg.strip().lower()
-        if choice in ["1", "saturday"]:
-            state["delivery_day"] = "Saturday"
-        elif choice in ["2", "sunday"]:
-            state["delivery_day"] = "Sunday"
-        else:
-            msg.body("❌ Invalid option. Please reply with *1 for Saturday* or *2 for Sunday*.")
-            return str(resp)
-
-        state["stage"] = "ask_delivery_time"
-        msg.body(f"Cool 😎\nWhat *time* on {state['delivery_day']} would you like your veggies delivered? (e.g. 2 PM)")
+    # ---- Stage 3: Get Delivery Address ----
+    elif state["stage"] == "ask_address":
+        state["address"] = incoming_msg
+        state["stage"] = "ask_postcode"
+        msg.body("Thank you! �\nNow please provide your *postcode*:")
         return str(resp)
 
-    # ---- Stage 4: Get Delivery Time and Confirm Order ----
-    elif state["stage"] == "ask_delivery_time":
-        state["delivery_time"] = incoming_msg
-        full_delivery = f"{state['delivery_day']} {state['delivery_time']}"
+    # ---- Stage 4: Get Postcode and Confirm Order ----
+    elif state["stage"] == "ask_postcode":
+        state["postcode"] = incoming_msg
 
         # Save to Google Sheet with error handling
         success, order_id = save_order_to_sheet(state, from_number)
@@ -202,7 +190,7 @@ def whatsapp_reply():
                 "Your order details:\n"
                 f"👤 {state['name']}\n"
                 f"🥬 {state['bundles']} bundles\n"
-                f"🕒 {full_delivery}"
+                f"� {state['address']}, {state['postcode']}"
             )
             reset_user_state(from_number)
             return str(resp)
@@ -216,13 +204,13 @@ def whatsapp_reply():
             f"🆔 Order ID: *{order_id}*\n"
             f"👤 Name: {state['name']}\n"
             f"🥬 Bundles: {state['bundles']}\n"
-            f"🕒 Delivery: {full_delivery}\n\n"
+            f"� Address: {state['address']}, {state['postcode']}\n\n"
             "We'll deliver this weekend 🚚\n\n"
             "💡 *Commands:*\n"
             "• Type *VIEW* to see your order\n"
             "• Type *CANCEL* to cancel\n"
             "• Type *HI* for a new order\n\n"
-            "Thank you for supporting Marr's Veggie Orders! 💚"
+            "Thank you for supporting Foodstream Veggies! 💚"
         )
 
         # Reset user state
