@@ -3,3 +3,7 @@ twilio
 gspread
 google-auth
 gunicorn
+redis
+python-dotenv
+phonenumbers
+python-dateutil
