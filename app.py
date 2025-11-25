@@ -1,11 +1,10 @@
 """
-FoodStream Veggies Bot - Enhanced WhatsApp Ordering System
-A production-ready bot for managing vegetable orders via WhatsApp
+Iris Housing Bot - WhatsApp Housing Inquiry System
+A production-ready bot for managing housing inquiries via WhatsApp
 
 Features:
 - Persistent state management with Redis
-- Dynamic pricing with volume discounts
-- Order modification and tracking
+- Inquiry modification and tracking
 - Admin notifications
 - Input validation and security
 - Rate limiting
@@ -26,14 +25,14 @@ from google.oauth2.service_account import Credentials
 from config import Config
 from state_manager import create_state_manager
 from validators import (
-    validate_bundle_count, validate_postcode, validate_address,
-    validate_name, validate_delivery_slot_choice, validate_order_id
+    validate_name, validate_age, validate_country,
+    validate_phone_number, validate_budget, validate_house_id,
+    validate_location_preference
 )
-from pricing import pricing_engine
 from notifications import admin_notifier
 from utils import (
     generate_order_id, sanitize_text, format_phone_number,
-    format_timestamp, rate_limit, parse_yes_no, create_numbered_list,
+    format_timestamp, rate_limit, parse_yes_no,
     get_greeting_for_time
 )
 
@@ -99,8 +98,8 @@ def home():
         "features": {
             "redis_enabled": Config.REDIS_ENABLED,
             "admin_notifications": Config.ADMIN_NOTIFICATIONS_ENABLED,
-            "order_modification": Config.ENABLE_ORDER_MODIFICATION,
-            "order_tracking": Config.ENABLE_ORDER_TRACKING
+            "inquiry_modification": Config.ENABLE_INQUIRY_MODIFICATION,
+            "inquiry_tracking": Config.ENABLE_INQUIRY_TRACKING
         },
         "endpoints": {
             "whatsapp": "/whatsapp (POST)"
@@ -143,16 +142,16 @@ def validate_twilio_request(request_data) -> bool:
         return False
 
 
-def save_order_to_sheet(state, phone_number) -> tuple:
+def save_inquiry_to_sheet(state, phone_number) -> tuple:
     """
-    Save order details to Google Sheet
+    Save housing inquiry details to Google Sheet
     
     Args:
-        state: User state containing order details
+        state: User state containing inquiry details
         phone_number: Customer's phone number
     
     Returns:
-        Tuple of (success: bool, order_id: str or None)
+        Tuple of (success: bool, inquiry_id: str or None)
     """
     if not sheet:
         logger.error("Google Sheets not initialized")
@@ -160,47 +159,42 @@ def save_order_to_sheet(state, phone_number) -> tuple:
     
     try:
         timestamp = format_timestamp()
-        order_id = state.get('order_id', generate_order_id())
+        inquiry_id = state.get('inquiry_id', generate_order_id())
         
-        # Get pricing details
-        pricing = pricing_engine.calculate_order(state['bundles'])
-        
-        # Prepare row data
+        # Prepare row data for housing inquiry
         row_data = [
-            order_id,
+            inquiry_id,
             state["name"],
-            state["bundles"],
-            pricing['unit_price'],
-            pricing['total'],
-            pricing['discount_percent'],
-            state["address"],
-            state["postcode"],
-            state.get("delivery_slot", "This weekend"),
-            format_phone_number(phone_number),
-            "Confirmed",
+            state["age"],
+            state["country"],
+            state["phone"],
+            state["budget"],
+            state.get("house_id", "N/A"),
+            state["location"],
+            "Interested",  # Status set only on confirmation
             timestamp,
             timestamp,  # Updated At
-            state.get("notes", "")
         ]
         
         sheet.append_row(row_data)
         
-        # Store last order for this user
-        order_data = {
-            'order_id': order_id,
+        # Store last inquiry for this user
+        inquiry_data = {
+            'inquiry_id': inquiry_id,
             'name': state['name'],
-            'bundles': state['bundles'],
-            'address': state['address'],
-            'postcode': state['postcode'],
-            'delivery_slot': state.get('delivery_slot', 'This weekend'),
-            'total_price': pricing['total'],
-            'timestamp': timestamp,
-            'status': 'Confirmed'
+            'age': state['age'],
+            'country': state['country'],
+            'phone': state['phone'],
+            'budget': state['budget'],
+            'house_id': state.get('house_id', 'N/A'),
+            'location': state['location'],
+            'status': 'Interested',
+            'timestamp': timestamp
         }
-        state_manager.set_last_order(phone_number, order_data)
+        state_manager.set_last_order(phone_number, inquiry_data)
         
-        logger.info(f"✅ Order {order_id} saved successfully")
-        return True, order_id
+        logger.info(f"✅ Inquiry {inquiry_id} saved successfully")
+        return True, inquiry_id
     
     except Exception as e:
         logger.error(f"Error saving to sheet: {e}")
@@ -225,60 +219,56 @@ def handle_start_command(phone_number: str) -> str:
     
     message = (
         f"{greeting}! 👋 Welcome to {Config.BOT_NAME} {Config.BOT_EMOJI}!\n\n"
-        f"Please tell me your *name* to start your order."
+        f"We're here to help you find your perfect home.\n\n"
+        f"Please tell me your *name* to start your inquiry."
     )
-    
-    # Show volume discounts if configured (REMOVED - no discounts)
-    # discount_info = pricing_engine.get_discount_info()
-    # if discount_info:
-    #     message += f"\n\n{discount_info}"
     
     return message
 
 
 def handle_view_order(phone_number: str) -> str:
-    """Handle view order command"""
-    order = state_manager.get_last_order(phone_number)
+    """Handle view inquiry command"""
+    inquiry = state_manager.get_last_order(phone_number)
     
-    if not order:
-        return f"You don't have any recent orders. Type *HI* to place a new order! {Config.BOT_EMOJI}"
+    if not inquiry:
+        return f"You don't have any recent inquiries. Type *HI* to start a new inquiry! {Config.BOT_EMOJI}"
     
     return (
-        f"📦 *Your Last Order*\n\n"
-        f"🆔 Order ID: {order['order_id']}\n"
-        f"👤 Name: {order['name']}\n"
-        f"🥬 Bundles: {order['bundles']}\n"
-        f"💰 Total: £{order.get('total_price', 'N/A')}\n"
-        f"📍 Address: {order['address']}, {order['postcode']}\n"
-        f"🚚 Delivery: {order.get('delivery_slot', 'This weekend')}\n"
-        f"📊 Status: {order.get('status', 'Confirmed')}\n\n"
-        f"Reply *CANCEL* to cancel this order\n"
-        f"or *HI* to place a new order {Config.BOT_EMOJI}"
+        f"📋 *Your Last Inquiry*\n\n"
+        f"🆔 Inquiry ID: {inquiry['inquiry_id']}\n"
+        f"👤 Name: {inquiry['name']}\n"
+        f"🎂 Age: {inquiry['age']}\n"
+        f"🌍 Country: {inquiry['country']}\n"
+        f"📱 Phone: {inquiry['phone']}\n"
+        f"💰 Budget: {inquiry['budget']}\n"
+        f"🏠 House ID: {inquiry.get('house_id', 'N/A')}\n"
+        f"📍 Location: {inquiry['location']}\n"
+        f"📊 Status: {inquiry.get('status', 'Interested')}\n\n"
+        f"Reply *CANCEL* to cancel this inquiry\n"
+        f"or *HI* to submit a new inquiry {Config.BOT_EMOJI}"
     )
 
 
 def handle_cancel_order(phone_number: str) -> str:
-    """Handle order cancellation"""
-    order = state_manager.get_last_order(phone_number)
+    """Handle inquiry cancellation"""
+    inquiry = state_manager.get_last_order(phone_number)
     
-    if not order:
-        return "No recent order found to cancel."
+    if not inquiry:
+        return "No recent inquiry found to cancel."
     
-    order_id = order['order_id']
-    customer_name = order['name']
+    inquiry_id = inquiry['inquiry_id']
+    customer_name = inquiry['name']
     
     # Notify admin
     if Config.ADMIN_NOTIFICATIONS_ENABLED:
-        admin_notifier.send_order_cancellation(order_id, customer_name)
+        admin_notifier.send_order_cancellation(inquiry_id, customer_name)
     
     # Remove from state
-    state_manager.set_last_order(phone_number, {**order, 'status': 'Cancelled'})
+    state_manager.set_last_order(phone_number, {**inquiry, 'status': 'Cancelled'})
     
     return (
-        f"❌ Order {order_id} has been cancelled.\n\n"
-        f"Note: If you need to cancel within 24 hours of delivery, "
-        f"please contact us directly.\n\n"
-        f"Type *HI* to place a new order! 🥦"
+        f"❌ Inquiry {inquiry_id} has been cancelled.\n\n"
+        f"Type *HI* to submit a new inquiry! 🏠"
     )
 
 
@@ -287,14 +277,11 @@ def handle_help_command() -> str:
     return (
         f"ℹ️ *{Config.BOT_NAME} - Help*\n\n"
         f"*Available Commands:*\n"
-        f"• *HI* - Start a new order\n"
-        f"• *VIEW* - See your last order\n"
-        f"• *CANCEL* - Cancel your order\n"
+        f"• *HI* - Start a new housing inquiry\n"
+        f"• *VIEW* - See your last inquiry\n"
+        f"• *CANCEL* - Cancel your inquiry\n"
         f"• *HELP* - Show this help message\n\n"
-        f"*Pricing:*\n"
-        f"£{Config.PRICE_PER_BUNDLE} per bundle\n"
-        f"{pricing_engine.get_discount_info()}\n\n"
-        f"Type *HI* to start ordering! {Config.BOT_EMOJI}"
+        f"Type *HI* to start your housing inquiry! {Config.BOT_EMOJI}"
     )
 
 
@@ -323,102 +310,113 @@ def handle_ask_name(state: dict, incoming_msg: str) -> str:
         return f"❌ {result}\nPlease tell me your name:"
     
     state["name"] = result
-    state["stage"] = "ask_bundles"
+    state["stage"] = "ask_age"
     
-    return f"Nice to meet you, {state['name']}! 🧺\n\nHow many *bundles* would you like to order?"
+    return f"Nice to meet you, {state['name']}! 🏠\n\nHow old are you? (Please enter your age)"
 
 
-def handle_ask_bundles(state: dict, incoming_msg: str) -> str:
-    """Handle bundle count collection stage"""
-    is_valid, result = validate_bundle_count(incoming_msg)
+def handle_ask_age(state: dict, incoming_msg: str) -> str:
+    """Handle age collection stage"""
+    is_valid, result = validate_age(incoming_msg)
     
     if not is_valid:
-        return f"❌ {result}\nPlease enter how many bundles you'd like:"
+        return f"❌ {result}\nPlease enter your age:"
     
-    state["bundles"] = result
-    state["stage"] = "ask_address"
+    state["age"] = result
+    state["stage"] = "ask_country"
     
-    # Show pricing preview
-    pricing_summary = pricing_engine.get_order_summary(result)
+    return f"Got it! ✅\n\nWhich *country* are you from?"
+
+
+def handle_ask_country(state: dict, incoming_msg: str) -> str:
+    """Handle country collection stage"""
+    is_valid, result = validate_country(incoming_msg)
+    
+    if not is_valid:
+        return f"❌ {result}\nPlease provide your country:"
+    
+    state["country"] = result
+    state["stage"] = "ask_phone"
+    
+    return f"Thank you! 🌍\n\nWhat is your *phone number*?\n(e.g., +36301234567 or 06301234567)"
+
+
+def handle_ask_phone(state: dict, incoming_msg: str) -> str:
+    """Handle phone number collection stage"""
+    is_valid, result = validate_phone_number(incoming_msg)
+    
+    if not is_valid:
+        return f"❌ {result}\nPlease provide your phone number:"
+    
+    state["phone"] = result
+    state["stage"] = "ask_budget"
+    
+    return f"Perfect! 📱\n\nWhat is your *budget* in HUF?\n(e.g., 150000, 200000)"
+
+
+def handle_ask_budget(state: dict, incoming_msg: str) -> str:
+    """Handle budget collection stage"""
+    is_valid, result = validate_budget(incoming_msg)
+    
+    if not is_valid:
+        return f"❌ {result}\nPlease enter your budget:"
+    
+    state["budget"] = result
+    state["stage"] = "ask_house_id"
     
     return (
-        f"Got it ✅\n\n"
-        f"{pricing_summary}\n\n"
-        f"Please provide your *delivery address*:"
+        f"Excellent! 💰\n\n"
+        f"Do you have a specific *house ID* you're interested in?\n"
+        f"If yes, please provide it. If not, type *skip*."
     )
 
 
-def handle_ask_address(state: dict, incoming_msg: str) -> str:
-    """Handle address collection stage"""
-    is_valid, result = validate_address(incoming_msg)
+def handle_ask_house_id(state: dict, incoming_msg: str) -> str:
+    """Handle house ID collection stage (optional)"""
+    is_valid, result = validate_house_id(incoming_msg)
     
     if not is_valid:
-        return f"❌ {result}\nPlease provide your delivery address:"
+        return f"❌ {result}\nPlease provide a house ID or type 'skip':"
     
-    state["address"] = result
-    state["stage"] = "ask_postcode"
+    state["house_id"] = result
+    state["stage"] = "ask_location"
     
-    return "Thank you! 📍\n\nNow please provide your *postcode*:"
+    house_msg = f"House ID: {result}" if result != "N/A" else "No specific house ID"
+    
+    return (
+        f"Noted! 🏠 {house_msg}\n\n"
+        f"What are your *location preferences*?\n"
+        f"(e.g., 'Near tram', 'Close to bus stop', 'City center', etc.)"
+    )
 
 
-def handle_ask_postcode(state: dict, incoming_msg: str) -> str:
-    """Handle postcode collection stage"""
-    is_valid, result = validate_postcode(incoming_msg)
+def handle_ask_location(state: dict, incoming_msg: str) -> str:
+    """Handle location preference collection stage"""
+    is_valid, result = validate_location_preference(incoming_msg)
     
     if not is_valid:
-        return f"❌ {result}\nPlease provide your postcode:"
+        return f"❌ {result}\nPlease describe your location preferences:"
     
-    state["postcode"] = result
-    
-    # Get delivery slots
-    delivery_slots = Config.get_delivery_slots()
-    
-    if len(delivery_slots) > 1:
-        state["stage"] = "ask_delivery_slot"
-        slot_list = create_numbered_list(delivery_slots, "🕒")
-        
-        return (
-            f"Perfect! 🎯\n\n"
-            f"*Choose your delivery slot:*\n{slot_list}\n\n"
-            f"Reply with the number of your preferred slot."
-        )
-    else:
-        # Skip to confirmation if only one slot
-        state["delivery_slot"] = delivery_slots[0] if delivery_slots else "This weekend"
-        state["stage"] = "confirm_order"
-        return generate_confirmation_message(state)
-
-
-def handle_ask_delivery_slot(state: dict, incoming_msg: str) -> str:
-    """Handle delivery slot selection stage"""
-    delivery_slots = Config.get_delivery_slots()
-    is_valid, result = validate_delivery_slot_choice(incoming_msg, delivery_slots)
-    
-    if not is_valid:
-        slot_list = create_numbered_list(delivery_slots, "🕒")
-        return f"❌ {result}\n\n{slot_list}\n\nPlease choose a number:"
-    
-    state["delivery_slot"] = result
-    state["stage"] = "confirm_order"
+    state["location"] = result
+    state["stage"] = "confirm_inquiry"
     
     return generate_confirmation_message(state)
 
 
 def generate_confirmation_message(state: dict) -> str:
-    """Generate order confirmation message"""
-    pricing = pricing_engine.calculate_order(state['bundles'])
-    pricing_summary = pricing_engine.get_order_summary(state['bundles'])
-    
+    """Generate inquiry confirmation message"""
     message = (
-        f"✅ *Please Confirm Your Order*\n\n"
+        f"✅ *Please Confirm Your Inquiry*\n\n"
         f"👤 Name: {state['name']}\n"
-        f"🥬 Bundles: {state['bundles']}\n"
-        f"📍 Address: {state['address']}, {state['postcode']}\n"
-        f"🚚 Delivery: {state.get('delivery_slot', 'This weekend')}\n\n"
-        f"{pricing_summary}\n\n"
+        f"🎂 Age: {state['age']}\n"
+        f"🌍 Country: {state['country']}\n"
+        f"📱 Phone: {state['phone']}\n"
+        f"💰 Budget: {state['budget']}\n"
+        f"🏠 House ID: {state.get('house_id', 'N/A')}\n"
+        f"📍 Location Preference: {state['location']}\n\n"
     )
     
-    if Config.ENABLE_ORDER_MODIFICATION:
+    if Config.ENABLE_INQUIRY_MODIFICATION:
         message += "Reply *YES* to confirm or *MODIFY* to make changes."
     else:
         message += "Reply *YES* to confirm or *CANCEL* to cancel."
@@ -426,100 +424,108 @@ def generate_confirmation_message(state: dict) -> str:
     return message
 
 
-def handle_confirm_order(state: dict, incoming_msg: str, phone_number: str) -> str:
-    """Handle order confirmation stage"""
+def handle_confirm_inquiry(state: dict, incoming_msg: str, phone_number: str) -> str:
+    """Handle inquiry confirmation stage"""
     response = parse_yes_no(incoming_msg)
     
     # Check for modification request
-    if Config.ENABLE_ORDER_MODIFICATION and incoming_msg.lower() in ["modify", "change", "edit"]:
-        state["stage"] = "modify_order"
+    if Config.ENABLE_INQUIRY_MODIFICATION and incoming_msg.lower() in ["modify", "change", "edit"]:
+        state["stage"] = "modify_inquiry"
         return (
             "📝 What would you like to modify?\n\n"
             "Reply:\n"
-            "• *1* - Change quantity\n"
-            "• *2* - Change address\n"
-            "• *3* - Change postcode\n"
-            "• *4* - Change delivery slot\n"
+            "• *1* - Change age\n"
+            "• *2* - Change country\n"
+            "• *3* - Change phone number\n"
+            "• *4* - Change budget\n"
+            "• *5* - Change house ID\n"
+            "• *6* - Change location preference\n"
             "• *CANCEL* - Cancel modification"
         )
     
     if response is True:
-        # Confirm and save order
-        order_id = generate_order_id()
-        state['order_id'] = order_id
+        # Confirm and save inquiry
+        inquiry_id = generate_order_id()
+        state['inquiry_id'] = inquiry_id
         
-        success, saved_order_id = save_order_to_sheet(state, phone_number)
+        success, saved_inquiry_id = save_inquiry_to_sheet(state, phone_number)
         
         if not success:
             return (
-                "⚠️ Sorry, there was an issue saving your order.\n"
+                "⚠️ Sorry, there was an issue saving your inquiry.\n"
                 "Please try again later or contact support.\n\n"
-                f"Your order details:\n"
+                f"Your inquiry details:\n"
                 f"👤 {state['name']}\n"
-                f"🥬 {state['bundles']} bundles\n"
-                f"📍 {state['address']}, {state['postcode']}"
+                f"💰 {state['budget']}\n"
+                f"📍 {state['location']}"
             )
         
         # Send admin notification
         if Config.ADMIN_NOTIFICATIONS_ENABLED:
-            order_data = state_manager.get_last_order(phone_number)
-            admin_notifier.send_new_order_notification(order_data, phone_number)
+            inquiry_data = state_manager.get_last_order(phone_number)
+            admin_notifier.send_new_order_notification(inquiry_data, phone_number)
         
         # Reset state
         reset_user_state(phone_number)
         
         return (
-            f"🎉 *Order Confirmed!*\n\n"
-            f"🆔 Order ID: *{saved_order_id}*\n"
+            f"🎉 *Inquiry Submitted!*\n\n"
+            f"🆔 Inquiry ID: *{saved_inquiry_id}*\n"
             f"👤 Name: {state['name']}\n"
-            f"🥬 Bundles: {state['bundles']}\n"
-            f"📍 Address: {state['address']}, {state['postcode']}\n"
-            f"🚚 Delivery: {state.get('delivery_slot', 'This weekend')}\n\n"
+            f"💰 Budget: {state['budget']}\n"
+            f"📍 Location: {state['location']}\n\n"
+            f"We'll review your inquiry and get back to you soon!\n\n"
             f"💡 *Commands:*\n"
-            f"• Type *VIEW* to see your order\n"
+            f"• Type *VIEW* to see your inquiry\n"
             f"• Type *CANCEL* to cancel\n"
-            f"• Type *HI* for a new order\n\n"
-            f"Thank you for supporting {Config.BOT_NAME}! 💚"
+            f"• Type *HI* for a new inquiry\n\n"
+            f"Thank you for choosing {Config.BOT_NAME}! 💚"
         )
     
     elif response is False:
         reset_user_state(phone_number)
-        return "Order cancelled. Type *HI* to start a new order! 🥦"
+        return "Inquiry cancelled. Type *HI* to start a new inquiry! 🏠"
     
     else:
         return "Please reply *YES* to confirm or *NO* to cancel."
 
 
-def handle_modify_order(state: dict, incoming_msg: str) -> str:
-    """Handle order modification flow"""
+def handle_modify_inquiry(state: dict, incoming_msg: str) -> str:
+    """Handle inquiry modification flow"""
     choice = incoming_msg.strip()
     
     if choice.lower() == "cancel":
-        state["stage"] = "confirm_order"
+        state["stage"] = "confirm_inquiry"
         return generate_confirmation_message(state)
     
     if choice == "1":
-        state["stage"] = "ask_bundles"
-        return "How many bundles would you like? 🧺"
+        state["stage"] = "ask_age"
+        return "What is your age? 🎂"
     elif choice == "2":
-        state["stage"] = "ask_address"
-        return "What's your delivery address? 📍"
+        state["stage"] = "ask_country"
+        return "Which country are you from? 🌍"
     elif choice == "3":
-        state["stage"] = "ask_postcode"
-        return "What's your postcode? 📮"
+        state["stage"] = "ask_phone"
+        return "What is your phone number? 📱"
     elif choice == "4":
-        state["stage"] = "ask_delivery_slot"
-        delivery_slots = Config.get_delivery_slots()
-        slot_list = create_numbered_list(delivery_slots, "🕒")
-        return f"Choose your delivery slot:\n{slot_list}"
+        state["stage"] = "ask_budget"
+        return "What is your budget? 💰"
+    elif choice == "5":
+        state["stage"] = "ask_house_id"
+        return "What is the house ID? (or type 'skip') 🏠"
+    elif choice == "6":
+        state["stage"] = "ask_location"
+        return "What are your location preferences? 📍"
     else:
         return (
             "Please choose:\n"
-            "• *1* - Change quantity\n"
-            "• *2* - Change address\n"
-            "• *3* - Change postcode\n"
-            "• *4* - Change delivery slot\n"
-            "• *CANCEL* - Keep current order"
+            "• *1* - Change age\n"
+            "• *2* - Change country\n"
+            "• *3* - Change phone number\n"
+            "• *4* - Change budget\n"
+            "• *5* - Change house ID\n"
+            "• *6* - Change location preference\n"
+            "• *CANCEL* - Keep current inquiry"
         )
 
 
@@ -567,11 +573,11 @@ def whatsapp_reply():
         return str(resp)
     
     if msg_lower == "cancel":
-        # Check if in active conversation or cancelling order
+        # Check if in active conversation or cancelling inquiry
         state = state_manager.get_state(from_number)
         if state:
             reset_user_state(from_number)
-            msg.body("Conversation cancelled. Type *HI* to start fresh! 🥦")
+            msg.body("Conversation cancelled. Type *HI* to start fresh! 🏠")
         else:
             msg.body(handle_cancel_order(from_number))
         return str(resp)
@@ -600,26 +606,32 @@ def whatsapp_reply():
         if stage == "ask_name":
             response_text = handle_ask_name(state, incoming_msg)
         
-        elif stage == "ask_bundles":
-            response_text = handle_ask_bundles(state, incoming_msg)
+        elif stage == "ask_age":
+            response_text = handle_ask_age(state, incoming_msg)
         
-        elif stage == "ask_address":
-            response_text = handle_ask_address(state, incoming_msg)
+        elif stage == "ask_country":
+            response_text = handle_ask_country(state, incoming_msg)
         
-        elif stage == "ask_postcode":
-            response_text = handle_ask_postcode(state, incoming_msg)
+        elif stage == "ask_phone":
+            response_text = handle_ask_phone(state, incoming_msg)
         
-        elif stage == "ask_delivery_slot":
-            response_text = handle_ask_delivery_slot(state, incoming_msg)
+        elif stage == "ask_budget":
+            response_text = handle_ask_budget(state, incoming_msg)
         
-        elif stage == "confirm_order":
-            response_text = handle_confirm_order(state, incoming_msg, from_number)
+        elif stage == "ask_house_id":
+            response_text = handle_ask_house_id(state, incoming_msg)
         
-        elif stage == "modify_order":
-            response_text = handle_modify_order(state, incoming_msg)
+        elif stage == "ask_location":
+            response_text = handle_ask_location(state, incoming_msg)
+        
+        elif stage == "confirm_inquiry":
+            response_text = handle_confirm_inquiry(state, incoming_msg, from_number)
+        
+        elif stage == "modify_inquiry":
+            response_text = handle_modify_inquiry(state, incoming_msg)
         
         else:
-            response_text = "Something went wrong. Type *HI* to start fresh! 🥦"
+            response_text = "Something went wrong. Type *HI* to start fresh! 🏠"
             reset_user_state(from_number)
         
         # Save updated state

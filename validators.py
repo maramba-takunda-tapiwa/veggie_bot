@@ -1,98 +1,12 @@
 """
-Input validation for FoodStream Veggies Bot
-Validates bundles, postcodes, addresses, and other user inputs
+Input validation for Iris Housing Bot
+Validates age, country, phone, budget, and other user inputs
 """
 import re
 import logging
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
-
-
-def validate_bundle_count(text: str) -> Tuple[bool, any]:
-    """
-    Validate that bundle count is a positive number within acceptable range
-    
-    Args:
-        text: User input for bundle count
-    
-    Returns:
-        Tuple of (is_valid: bool, result: int or error_message: str)
-        If valid: (True, bundle_count)
-        If invalid: (False, error_message)
-    """
-    try:
-        count = int(text)
-        
-        if count <= 0:
-            return False, "Please enter a positive number of bundles! 😊"
-        
-        if count > 100:
-            return False, "That's a lot of veggies! 😅 Please order 100 or fewer bundles, or contact us directly for bulk orders."
-        
-        return True, count
-    
-    except ValueError:
-        return False, "Please enter a valid number (e.g., 1, 2, 3, etc.)"
-
-
-def validate_postcode(postcode: str) -> Tuple[bool, str]:
-    """
-    Validate UK postcode format
-    
-    Args:
-        postcode: User input for postcode
-    
-    Returns:
-        Tuple of (is_valid: bool, result: formatted_postcode or error_message: str)
-    """
-    # Remove whitespace and convert to uppercase
-    postcode = postcode.strip().upper()
-    
-    # Basic UK postcode regex pattern
-    # Matches formats like: SW1A 1AA, M1 1AE, CR2 6XH, etc.
-    uk_postcode_pattern = re.compile(
-        r'^[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}$'
-    )
-    
-    if not uk_postcode_pattern.match(postcode):
-        return False, "Please enter a valid UK postcode (e.g., SW1A 1AA, M1 1AE)"
-    
-    # Format with space if missing
-    if ' ' not in postcode:
-        # Insert space before last 3 characters
-        postcode = postcode[:-3] + ' ' + postcode[-3:]
-    
-    return True, postcode
-
-
-def validate_address(address: str) -> Tuple[bool, str]:
-    """
-    Validate delivery address
-    
-    Args:
-        address: User input for address
-    
-    Returns:
-        Tuple of (is_valid: bool, result: address or error_message: str)
-    """
-    address = address.strip()
-    
-    # Check minimum length
-    if len(address) < 5:
-        return False, "Please provide a complete address (street, house number, etc.)"
-    
-    # Check maximum length
-    if len(address) > 200:
-        return False, "Address is too long. Please use a shorter format."
-    
-    # Check if it contains at least some letters and numbers
-    has_letters = bool(re.search(r'[a-zA-Z]', address))
-    
-    if not has_letters:
-        return False, "Please provide a valid address with street name"
-    
-    return True, address
 
 
 def validate_name(name: str) -> Tuple[bool, str]:
@@ -124,46 +38,154 @@ def validate_name(name: str) -> Tuple[bool, str]:
     return True, name
 
 
-def validate_delivery_slot_choice(choice: str, available_slots: list) -> Tuple[bool, any]:
+def validate_age(age_text: str) -> Tuple[bool, any]:
     """
-    Validate delivery slot selection
+    Validate user age (must be 18+)
     
     Args:
-        choice: User input (should be a number)
-        available_slots: List of available delivery slots
+        age_text: User input for age
     
     Returns:
-        Tuple of (is_valid: bool, result: selected_slot or error_message: str)
+        Tuple of (is_valid: bool, result: int or error_message: str)
     """
     try:
-        index = int(choice) - 1  # Convert to 0-indexed
+        age = int(age_text)
         
-        if index < 0 or index >= len(available_slots):
-            return False, f"Please choose a number between 1 and {len(available_slots)}"
+        if age < 18:
+            return False, "You must be at least 18 years old to inquire about housing. 🏠"
         
-        return True, available_slots[index]
+        if age > 120:
+            return False, "Please enter a valid age."
+        
+        return True, age
     
     except ValueError:
-        return False, "Please enter the number of your preferred delivery slot"
+        return False, "Please enter a valid age (e.g., 25, 30, etc.)"
 
 
-def validate_order_id(order_id: str) -> Tuple[bool, str]:
+def validate_country(country: str) -> Tuple[bool, str]:
     """
-    Validate order ID format
+    Validate country input
     
     Args:
-        order_id: User input for order ID
+        country: User input for country
     
     Returns:
-        Tuple of (is_valid: bool, result: order_id or error_message: str)
+        Tuple of (is_valid: bool, result: country or error_message: str)
     """
-    order_id = order_id.strip().upper()
+    country = country.strip()
     
-    # Order IDs are 6-character hexadecimal
-    if len(order_id) != 6:
-        return False, "Order ID should be 6 characters"
+    # Check minimum length
+    if len(country) < 2:
+        return False, "Please provide a valid country name"
     
-    if not re.match(r'^[A-F0-9]{6}$', order_id):
-        return False, "Invalid order ID format. Order IDs contain only letters A-F and numbers 0-9"
+    # Check maximum length
+    if len(country) > 50:
+        return False, "Country name is too long. Please use a shorter format."
     
-    return True, order_id
+    # Check if it contains at least some letters
+    has_letters = bool(re.search(r'[a-zA-Z]', country))
+    
+    if not has_letters:
+        return False, "Please provide a valid country name"
+    
+    return True, country
+
+
+def validate_phone_number(phone: str) -> Tuple[bool, str]:
+    """
+    Validate phone number format
+    
+    Args:
+        phone: User input for phone number
+    
+    Returns:
+        Tuple of (is_valid: bool, result: phone or error_message: str)
+    """
+    # Remove common separators and spaces
+    phone_cleaned = re.sub(r'[\s\-\(\)]+', '', phone)
+    
+    # Check if it contains only digits and optional + at start
+    if not re.match(r'^\+?\d{7,15}$', phone_cleaned):
+        return False, "Please enter a valid phone number (e.g., +36301234567 or 06301234567)"
+    
+    return True, phone_cleaned
+
+
+def validate_budget(budget_text: str) -> Tuple[bool, str]:
+    """
+    Validate budget in HUF
+    
+    Args:
+        budget_text: User input for budget
+    
+    Returns:
+        Tuple of (is_valid: bool, result: budget or error_message: str)
+    """
+    budget_text = budget_text.strip()
+    
+    # Remove common currency symbols and text
+    budget_cleaned = re.sub(r'[HUF\s,]', '', budget_text, flags=re.IGNORECASE)
+    
+    try:
+        budget_amount = float(budget_cleaned)
+        
+        if budget_amount <= 0:
+            return False, "Please enter a positive budget amount 💰"
+        
+        # Format nicely with thousand separators
+        budget_formatted = f"{int(budget_amount):,} HUF"
+        
+        return True, budget_formatted
+    
+    except ValueError:
+        return False, "Please enter a valid budget amount (e.g., 150000, 200000)"
+
+
+def validate_house_id(house_id: str) -> Tuple[bool, str]:
+    """
+    Validate house ID (optional field)
+    
+    Args:
+        house_id: User input for house ID
+    
+    Returns:
+        Tuple of (is_valid: bool, result: house_id or error_message: str)
+    """
+    house_id = house_id.strip().upper()
+    
+    # Check if user wants to skip
+    if house_id.lower() in ["skip", "no", "none", "n/a", "na", "don't have", "dont have"]:
+        return True, "N/A"
+    
+    # Validate length
+    if len(house_id) < 2:
+        return False, "Please provide a valid house ID or type 'skip' if you don't have one"
+    
+    if len(house_id) > 20:
+        return False, "House ID is too long. Please provide a valid ID or type 'skip'"
+    
+    return True, house_id
+
+
+def validate_location_preference(location: str) -> Tuple[bool, str]:
+    """
+    Validate location preference (free text)
+    
+    Args:
+        location: User input for location preferences
+    
+    Returns:
+        Tuple of (is_valid: bool, result: location or error_message: str)
+    """
+    location = location.strip()
+    
+    # Check minimum length
+    if len(location) < 3:
+        return False, "Please describe your location preferences (e.g., 'Near tram', 'Close to bus stop', 'City center')"
+    
+    # Check maximum length
+    if len(location) > 200:
+        return False, "Location preference is too long. Please be more concise."
+    
+    return True, location
